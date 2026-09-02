@@ -47,6 +47,9 @@
                     "hi": 0,
                     "lo": 1000000000
                   }
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             }
@@ -468,6 +471,12 @@
                         },
                         {
                           "key": {
+                            "symbol": "caller"
+                          },
+                          "val": "void"
+                        },
+                        {
+                          "key": {
                             "symbol": "invoice_id"
                           },
                           "val": {
@@ -508,6 +517,12 @@
                               "lo": 1000000000
                             }
                           }
+                        },
+                        {
+                          "key": {
+                            "symbol": "caller"
+                          },
+                          "val": "void"
                         },
                         {
                           "key": {
@@ -714,6 +729,9 @@
                     "hi": 0,
                     "lo": 1000000000
                   }
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             }
@@ -795,6 +813,9 @@
               },
               {
                 "bytes": "000000000000000c000000000000000000000000000000000000000000000000"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
               }
             ],
             "data": {

@@ -36,7 +36,40 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "ID_G8"
+                      },
+                      "val": {
+                        "string": "__xRYC_4_84U7J5XD3O_"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "_U8dKSi"
+                      },
+                      "val": {
+                        "string": "f8C2Z3tP4KC71sxfnU"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "_t__D35HZ"
+                      },
+                      "val": {
+                        "string": "S_HL_rW_6d"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "yKZkSCd9__"
+                      },
+                      "val": {
+                        "string": "ZslH_Sz__"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -100,7 +133,40 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": []
+                        "map": [
+                          {
+                            "key": {
+                              "string": "ID_G8"
+                            },
+                            "val": {
+                              "string": "__xRYC_4_84U7J5XD3O_"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "_U8dKSi"
+                            },
+                            "val": {
+                              "string": "f8C2Z3tP4KC71sxfnU"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "_t__D35HZ"
+                            },
+                            "val": {
+                              "string": "S_HL_rW_6d"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "yKZkSCd9__"
+                            },
+                            "val": {
+                              "string": "ZslH_Sz__"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -355,7 +421,40 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "ID_G8"
+                      },
+                      "val": {
+                        "string": "__xRYC_4_84U7J5XD3O_"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "_U8dKSi"
+                      },
+                      "val": {
+                        "string": "f8C2Z3tP4KC71sxfnU"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "_t__D35HZ"
+                      },
+                      "val": {
+                        "string": "S_HL_rW_6d"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "yKZkSCd9__"
+                      },
+                      "val": {
+                        "string": "ZslH_Sz__"
+                      }
+                    }
+                  ]
                 }
               ]
             }

@@ -1,8 +1,9 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, xdr::ToXdr, Address, Bytes, BytesN, Env,
-    IntoVal, Map, String, Symbol, Vec,
+    contract, contractimpl, panic_with_error, token,
+    xdr::{FromXdr, ToXdr},
+    Address, Bytes, BytesN, Env, IntoVal, Map, String, Symbol, Vec,
 };
 
 mod constants;
@@ -30,6 +31,12 @@ pub const MAX_FACE_VALUE: u128 = u128::MAX / 10_000;
 /// far-future due dates that are effectively garbage data (e.g., centuries
 /// in the future). The value is ~10 years (10 * 365 * 24 * 60 * 60).
 pub const MAX_INVOICE_LIFETIME_SECONDS: u64 = 10 * 365 * 24 * 60 * 60;
+
+/// Fixed 32-byte domain separator that Underwrite agents must include in
+/// the [`AttestationPayload`] they sign. Binds a signature to this
+/// contract's attestation scheme specifically, so it can't be replayed
+/// against an unrelated contract or message format.
+pub const ATTESTATION_DOMAIN_SEPARATOR: [u8; 32] = *b"TrusTrove.InvoiceAttestation.v1_";
 
 #[contract]
 pub struct InvoiceContract;
@@ -77,6 +84,50 @@ impl InvoiceContract {
         events::contract_initialized(&env, &admin, &registry_contract);
     }
 
+    /// Returns the stored admin address, or `None` if not initialized.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// Does not panic.
+    ///
+    /// # Returns
+    /// * `Option<Address>` - The stored admin address if initialized, or `None`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let admin = client.get_admin();
+    /// ```
+    pub fn get_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Admin)
+    }
+
+    /// Returns the stored registry contract address, or `None` if not initialized.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// Does not panic.
+    ///
+    /// # Returns
+    /// * `Option<Address>` - The registry contract address if initialized, or `None`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let registry = client.get_registry_contract();
+    /// ```
+    pub fn get_registry_contract(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::RegistryContract)
+    }
+
     /// Sets the pool contract address used by this invoice contract.
     ///
     /// # Arguments
@@ -101,7 +152,7 @@ impl InvoiceContract {
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
         let old_pool: Option<Address> = env.storage().instance().get(&DataKey::PoolContract);
         env.storage()
@@ -111,7 +162,104 @@ impl InvoiceContract {
             events::pool_contract_updated(&env, &old, &pool_contract);
         } else {
             events::pool_contract_updated(&env, &pool_contract, &pool_contract);
+            Self::extend_instance_ttl(&env);
         }
+    }
+
+    /// Returns the stored pool contract address, or `None` if not configured.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// Does not panic.
+    ///
+    /// # Returns
+    /// * `Option<Address>` - The pool contract address if configured, or `None`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let pool = client.get_pool_contract();
+    /// ```
+    pub fn get_pool_contract(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PoolContract)
+    }
+
+    /// Sets the agent-registry contract address used by `submit_attestation`
+    /// to look up an attesting agent's signing key.
+    ///
+    /// The agent-registry contract is deployed from the separate
+    /// `underwrite-contract` repo; its address is passed in here once it's
+    /// available (see `AGENT_REGISTRY_CONTRACT` in `.env.example`).
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `agent_registry_contract` - The deployed agent-registry contract address.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored admin address.
+    ///
+    /// # Panics
+    /// * `InvoiceError::NotFound` if the admin is not initialized.
+    ///
+    /// # Returns
+    /// * `()` - No value is returned.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.set_agent_registry_contract(&agent_registry_address);
+    /// ```
+    pub fn set_agent_registry_contract(env: Env, agent_registry_contract: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
+        admin.require_auth();
+        let old: Option<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::AgentRegistryContract);
+        env.storage()
+            .instance()
+            .set(&DataKey::AgentRegistryContract, &agent_registry_contract);
+        if let Some(old) = old {
+            events::agent_registry_contract_updated(&env, &old, &agent_registry_contract);
+        } else {
+            events::agent_registry_contract_updated(
+                &env,
+                &agent_registry_contract,
+                &agent_registry_contract,
+            );
+            Self::extend_instance_ttl(&env);
+        }
+    }
+
+    /// Returns the stored agent-registry contract address, or `None` if not configured.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// Does not panic.
+    ///
+    /// # Returns
+    /// * `Option<Address>` - The agent-registry contract address if configured, or `None`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let agent_registry = client.get_agent_registry_contract();
+    /// ```
+    pub fn get_agent_registry_contract(env: Env) -> Option<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::AgentRegistryContract)
     }
 
     /// Sets the escrow contract address used by this invoice contract.
@@ -137,11 +285,78 @@ impl InvoiceContract {
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
+
+        let old_escrow: Option<Address> = env.storage().instance().get(&DataKey::EscrowContract);
         env.storage()
             .instance()
             .set(&DataKey::EscrowContract, &escrow_contract);
+        Self::extend_instance_ttl(&env);
+
+        if let Some(old) = old_escrow {
+            events::escrow_contract_updated(&env, &old, &escrow_contract);
+        } else {
+            events::escrow_contract_updated(&env, &escrow_contract, &escrow_contract);
+        }
+    }
+
+    /// Returns the stored escrow contract address, or `None` if not configured.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// Does not panic.
+    ///
+    /// # Returns
+    /// * `Option<Address>` - The escrow contract address if configured, or `None`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let escrow = client.get_escrow_contract();
+    /// ```
+    pub fn get_escrow_contract(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::EscrowContract)
+    }
+
+    /// Adds an asset to the list of supported funding assets.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `asset` - The address of the asset to support.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored admin address.
+    ///
+    /// # Panics
+    /// * `InvoiceError::NotFound` if the admin cannot be found.
+    /// Returns the attestation for a given invoice, if one exists.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `invoice_id` - The invoice to query.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// Does not panic.
+    ///
+    /// # Returns
+    /// * `Option<Attestation>` - The attestation if one exists, or `None`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let attestation = client.get_attestation(&invoice_id);
+    /// ```
+    pub fn get_attestation(env: Env, invoice_id: BytesN<32>) -> Option<Attestation> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Attestation(invoice_id))
     }
 
     pub fn add_supported_asset(env: Env, asset: Address) {
@@ -149,7 +364,7 @@ impl InvoiceContract {
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
 
         let key = DataKey::SupportedAsset(asset.clone());
@@ -166,14 +381,27 @@ impl InvoiceContract {
             .instance()
             .set(&DataKey::SupportedAssetCount, &(count + 1));
         env.storage().persistent().set(&key, &true);
+        Self::extend_instance_ttl(&env);
+        events::supported_asset_added(&env, &asset);
     }
 
+    /// Removes an asset from the list of supported funding assets.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `asset` - The address of the asset to remove.
+    ///
+    /// # Auth
+    /// Requires authorization from the stored admin address.
+    ///
+    /// # Panics
+    /// * `InvoiceError::NotFound` if the admin cannot be found.
     pub fn remove_supported_asset(env: Env, asset: Address) {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
 
         let key = DataKey::SupportedAsset(asset.clone());
@@ -190,14 +418,43 @@ impl InvoiceContract {
             .instance()
             .set(&DataKey::SupportedAssetCount, &(count - 1));
         env.storage().persistent().remove(&key);
+        Self::extend_instance_ttl(&env);
+        events::supported_asset_removed(&env, &asset);
     }
 
+    /// Checks if a given asset is currently supported for financing.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The environment context.
+    /// * `asset` - The address of the asset to check.
+    ///
+    /// # Auth
+    ///
+    /// This is a read-only function and does not require authorization.
+    ///
+    /// # Returns
+    ///
+    /// True if the asset is supported, false otherwise.
     pub fn is_supported_asset(env: Env, asset: Address) -> bool {
         env.storage()
             .persistent()
             .has(&DataKey::SupportedAsset(asset))
     }
 
+    /// Gets the total number of supported financing assets.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The environment context.
+    ///
+    /// # Auth
+    ///
+    /// This is a read-only function and does not require authorization.
+    ///
+    /// # Returns
+    ///
+    /// The number of supported assets as a u32.
     pub fn get_supported_asset_count(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -229,7 +486,7 @@ impl InvoiceContract {
     ///   so `due_date == now` is rejected. Pinning tests:
     ///   `test_create_fails_when_due_date_equals_now` and
     ///   `test_create_succeeds_when_due_date_one_second_in_future`.
-    /// * `InvoiceError::InvalidDueDateTooFar` if `due_date` exceeds
+    /// * `InvoiceError::InvalidDueDate` if `due_date` exceeds
     ///   `now + MAX_INVOICE_LIFETIME_SECONDS` (~10 years).
     /// * `InvoiceError::CounterOverflow` if the internal invoice counter overflows.
     /// * `InvoiceError::InvalidParticipants` if `issuer` and `buyer` are the same address.
@@ -380,9 +637,27 @@ impl InvoiceContract {
     /// # Auth
     /// Requires authorization from the invoice's issuer.
     ///
+    /// # Registry re-verification
+    /// Registry verification is re-checked here in addition to `create()`.
+    /// This is the last point before pool capital can be committed to the
+    /// invoice, so a revocation that happened after `create()` but before
+    /// listing must still block it. Verification is deliberately **not**
+    /// re-checked at any later lifecycle step (`mark_shipped`,
+    /// `confirm_delivery`, `repay`, `repay_early`, `trigger_default`):
+    /// once an invoice is funded, pool liquidity is already committed and
+    /// repayment terms are already fixed, so a later revocation does not
+    /// retroactively unwind or default an in-flight invoice. See
+    /// `PoolContract::fund_invoice` for the other re-check point.
+    ///
     /// # Panics
     /// * `InvoiceError::NotFound` if the invoice does not exist.
+    /// * `InvoiceError::VerificationRequired` if no Underwrite agent attestation has
+    ///   been submitted for this invoice (see `submit_attestation`).
     /// * `InvoiceError::InvalidStatusTransition` if invoice status is not `Created`.
+    /// * `InvoiceError::IssuerNotVerified` if the issuer's registry verification
+    ///   has since been revoked.
+    /// * `InvoiceError::BuyerNotVerified` if the buyer's registry verification
+    ///   has since been revoked.
     /// * `InvoiceError::InvalidDiscount` if `discount_bps` is zero (a 0% discount is
     ///   nonsensical — the pool would fund at face value with zero yield).
     /// * `InvoiceError::DiscountTooHigh` if `discount_bps` is greater than 5000.
@@ -401,10 +676,35 @@ impl InvoiceContract {
             .persistent()
             .get(&inv_key)
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+        if !env
+            .storage()
+            .persistent()
+            .has(&DataKey::Attestation(invoice_id.clone()))
+        {
+            panic_with_error!(&env, InvoiceError::VerificationRequired);
+        }
         invoice.issuer.require_auth();
         if invoice.status != InvoiceStatus::Created {
             panic_with_error!(&env, InvoiceError::InvalidStatusTransition);
         }
+
+        let registry_id: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::RegistryContract)
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+        require_verified(
+            &env,
+            &registry_id,
+            &invoice.issuer,
+            InvoiceError::IssuerNotVerified,
+        );
+        require_verified(
+            &env,
+            &registry_id,
+            &invoice.buyer,
+            InvoiceError::BuyerNotVerified,
+        );
         if discount_bps == 0 {
             panic_with_error!(&env, InvoiceError::InvalidDiscount);
         }
@@ -427,6 +727,118 @@ impl InvoiceContract {
         true
     }
 
+    /// Submits a signed risk attestation from a registered Underwrite agent
+    /// against an invoice, unlocking it for `list_for_financing`.
+    ///
+    /// This is the hook by which TrusTrove calls into Underwrite's
+    /// agent-registry contract (a separate product, built in the
+    /// `underwrite-contract` repo) — this contract only verifies the
+    /// signature and checks the signer against that registry; it does not
+    /// implement any agent logic itself.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `invoice_id` - The invoice being attested.
+    /// * `payload` - XDR-encoded [`AttestationPayload`]: `domain_separator`,
+    ///   `invoice_id`, `risk_score`, `evidence_hash`, `agent_id`, `nonce`.
+    ///   This is exactly the byte string the agent signed.
+    /// * `signature` - A 65-byte recoverable secp256k1 signature over
+    ///   `keccak256(payload)`: 64 bytes of `r || s` followed by a 1-byte
+    ///   recovery id.
+    ///
+    /// # Auth
+    /// None from the caller — submission is deliberately permissionless.
+    /// Trust comes entirely from the signature recovering to an active
+    /// agent's registered pubkey, not from who relays the transaction.
+    ///
+    /// # Panics
+    /// * `InvoiceError::NotFound` if the invoice does not exist, or if the
+    ///   agent-registry contract has not been configured via
+    ///   `set_agent_registry_contract`.
+    /// * `InvoiceError::InvalidAmount` if `payload` fails to decode as an
+    ///   `AttestationPayload`, if its `domain_separator` doesn't match this
+    ///   contract's, or if its `invoice_id` doesn't match the `invoice_id`
+    ///   argument.
+    /// * `InvoiceError::UntrustedSigner` if the recovered signer is not an
+    ///   active agent in the agent-registry, or its registered pubkey
+    ///   doesn't match the recovered key.
+    /// * `InvoiceError::AlreadyAttested` if an attestation already exists
+    ///   for this invoice (replay guard — one attestation per invoice).
+    ///
+    /// # Returns
+    /// * `()` - No value is returned.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.submit_attestation(&invoice_id, &payload, &signature);
+    /// ```
+    pub fn submit_attestation(
+        env: Env,
+        invoice_id: BytesN<32>,
+        payload: Bytes,
+        signature: BytesN<65>,
+    ) {
+        // NO require_auth on the caller — submission is permissionless by
+        // design. Security comes entirely from the signature check below,
+        // not from who calls this.
+        Self::get_invoice(&env, invoice_id.clone());
+
+        let attestation_key = DataKey::Attestation(invoice_id.clone());
+        if env.storage().persistent().has(&attestation_key) {
+            panic_with_error!(&env, InvoiceError::AlreadyAttested);
+        }
+
+        let decoded: AttestationPayload = AttestationPayload::from_xdr(&env, &payload)
+            .unwrap_or_else(|_| panic_with_error!(&env, InvoiceError::InvalidAmount));
+        if decoded.domain_separator != BytesN::from_array(&env, &ATTESTATION_DOMAIN_SEPARATOR) {
+            panic_with_error!(&env, InvoiceError::InvalidAmount);
+        }
+        if decoded.invoice_id != invoice_id {
+            panic_with_error!(&env, InvoiceError::InvalidAmount);
+        }
+
+        // Split the 65-byte recoverable signature into its 64-byte r||s
+        // component and 1-byte recovery id for `secp256k1_recover`.
+        let sig_bytes = signature.to_array();
+        let mut rs = [0u8; 64];
+        rs.copy_from_slice(&sig_bytes[0..64]);
+        let recovery_id = sig_bytes[64] as u32;
+        let sig_rs = BytesN::from_array(&env, &rs);
+
+        let hash = env.crypto().keccak256(&payload);
+        let recovered_pubkey = env.crypto().secp256k1_recover(&hash, &sig_rs, recovery_id);
+
+        let registry: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::AgentRegistryContract)
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+        let mut args = Vec::new(&env);
+        args.push_back(decoded.agent_id.clone().into_val(&env));
+        let agent: Option<Agent> =
+            env.invoke_contract(&registry, &Symbol::new(&env, "get_agent"), args);
+        match agent {
+            Some(agent) if agent.active && agent.pubkey == recovered_pubkey => {}
+            _ => panic_with_error!(&env, InvoiceError::UntrustedSigner),
+        }
+
+        let attestation = Attestation {
+            agent_id: decoded.agent_id.clone(),
+            risk_score: decoded.risk_score,
+            evidence_hash: decoded.evidence_hash,
+            submitted_at: env.ledger().timestamp(),
+        };
+        env.storage()
+            .persistent()
+            .set(&attestation_key, &attestation);
+        env.storage()
+            .persistent()
+            .extend_ttl(&attestation_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        Self::extend_instance_ttl(&env);
+
+        events::attestation_submitted(&env, &invoice_id, &decoded.agent_id, decoded.risk_score);
+    }
+
     /// Marks a listed invoice as funded by a pool.
     ///
     /// # Arguments
@@ -444,6 +856,7 @@ impl InvoiceContract {
     /// * `InvoiceError::InvalidStatusTransition` if invoice status is not `Listed`.
     /// * `InvoiceError::UnsupportedAsset` if the asset does not match the invoice funding asset.
     /// * `InvoiceError::InvalidAmount` if `funded_amount` is zero.
+    /// * `InvoiceError::NotAuthorized` if `pool_address` does not match the configured PoolContract.
     ///
     /// # Returns
     /// * `bool` - `true` when funding is recorded.
@@ -460,6 +873,14 @@ impl InvoiceContract {
         funded_amount: u128,
     ) -> bool {
         pool_address.require_auth();
+        let configured_pool: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PoolContract)
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+        if pool_address != configured_pool {
+            panic_with_error!(&env, InvoiceError::NotAuthorized);
+        }
 
         if funded_amount == 0 {
             panic_with_error!(&env, InvoiceError::InvalidAmount);
@@ -473,6 +894,9 @@ impl InvoiceContract {
             .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
         if invoice.status != InvoiceStatus::Listed {
             panic_with_error!(&env, InvoiceError::InvalidStatusTransition);
+        }
+        if funded_amount > invoice.face_value {
+            panic_with_error!(&env, InvoiceError::InvalidAmount);
         }
         if asset_address != invoice.funding_asset {
             panic_with_error!(&env, InvoiceError::UnsupportedAsset);
@@ -637,7 +1061,7 @@ impl InvoiceContract {
     /// # Panics
     /// * `InvoiceError::NotFound` if the invoice cannot be found, or if the invoice has no
     ///   recorded funding pool or funding timestamp.
-    /// * `InvoiceError::InvalidStatusTransition` if invoice status is not `Confirmed`.
+    /// * `InvoiceError::InvalidStatusTransition` if invoice status is not `Funded`, `Active`, or `Confirmed`.
     ///
     /// # Returns
     /// * `bool` - `true` when repayment is completed.
@@ -647,26 +1071,6 @@ impl InvoiceContract {
     /// client.repay(&invoice_id);
     /// ```
     pub fn repay(env: Env, invoice_id: BytesN<32>) -> bool {
-        // Repays an invoice from Funded, Active, or Confirmed state,
-        // transferring the face value to the pool.
-        //
-        // # Arguments
-        // * `env` - The Soroban environment.
-        // * `invoice_id` - The invoice being repaid.
-        //
-        // # Returns
-        // * `bool` - `true` when repayment is completed.
-        //
-        // # Auth
-        // * `buyer` - The buyer must authorize the repayment.
-        //
-        // # Panics
-        // * `NotFound` if the invoice cannot be found.
-        // * `InvalidStatusTransition` if invoice status is not `Funded`, `Active`, or `Confirmed`.
-        //
-        // # Example
-        // ```ignore
-        // client.repay(&invoice_id);
         // ```
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let invoice: Invoice = env
@@ -701,7 +1105,10 @@ impl InvoiceContract {
         let earned_by_pool = if term == 0 {
             discount
         } else {
-            discount * (elapsed as u128) / (term as u128)
+            discount
+                .checked_mul(elapsed as u128)
+                .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::MathOverflow))
+                / (term as u128)
         };
         let refund_to_buyer = discount.saturating_sub(earned_by_pool);
 
@@ -750,6 +1157,26 @@ impl InvoiceContract {
         true
     }
 
+    /// Repays an invoice before its due date.
+    /// Repays an invoice early, applying a pro-rated discount refund.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The environment context.
+    /// * `invoice_id` - The unique identifier of the invoice being repaid early.
+    ///
+    /// # Auth
+    ///
+    /// Requires authorization from the `buyer` address associated with the invoice.
+    ///
+    /// # Panics
+    ///
+    /// * `InvoiceError::NotFound` if the invoice, pool, or funding timestamp does not exist.
+    /// * `InvoiceError::InvalidStatusTransition` if the invoice is not in the `Confirmed` status or if `now >= due_date`.
+    ///
+    /// # Returns
+    ///
+    /// A boolean indicating whether the early repayment was successful.
     pub fn repay_early(env: Env, invoice_id: BytesN<32>) -> bool {
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let invoice: Invoice = env
@@ -788,7 +1215,10 @@ impl InvoiceContract {
         let earned_by_pool = if term == 0 {
             discount
         } else {
-            discount * (elapsed as u128) / (term as u128)
+            discount
+                .checked_mul(elapsed as u128)
+                .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::MathOverflow))
+                / (term as u128)
         };
         let refund_to_buyer = discount.saturating_sub(earned_by_pool);
 
@@ -871,32 +1301,22 @@ impl InvoiceContract {
     /// ```ignore
     /// client.trigger_default(&invoice_id);
     /// ```
-    /// Triggers default on a past-due invoice.
     ///
-    /// Default is permitted once `now >= due_date` — the due date has been
-    /// reached or passed. This is consistent with the `create` check that
-    /// rejects `due_date <= now` (due dates must be in the future).
+    /// # Coupling with escrow's minimum lock window
+    /// This function's due-date gate (`now >= due_date`) is independent of,
+    /// and has no awareness of, the escrow contract's own
+    /// `DEFAULT_MIN_LOCK_SECONDS` grace period (60s from the escrow lock
+    /// timestamp, roughly `funded_at`). If `due_date` is reached less than
+    /// that window after the invoice was funded, this call sets the invoice's
+    /// local status to `Defaulted` and then transitively invokes
+    /// `escrow.handle_default()` (via `pool.handle_default`), which panics
+    /// with `EscrowError::NotAuthorized`. The whole transaction reverts, so
+    /// there is no persistent state inconsistency, but the caller sees a
+    /// revert originating from a constraint this contract does not itself
+    /// enforce or expose. See
+    /// `test_trigger_default_reverts_when_escrow_grace_period_not_elapsed`
+    /// for a pinned repro.
     ///
-    /// # Arguments
-    /// * `env` - The Soroban environment.
-    /// * `invoice_id` - The invoice to default.
-    ///
-    /// # Auth
-    /// Requires authorization from the stored admin address.
-    ///
-    /// # Panics
-    /// * `InvoiceError::NotFound` if the admin, invoice, or funding pool cannot be found.
-    /// * `InvoiceError::InvalidStatusTransition` if invoice is not `Funded`, `Active`, or `Confirmed`.
-    /// * `InvoiceError::DueDateNotPassed` if `now < due_date` — the due date
-    ///   has not yet been reached.
-    ///
-    /// # Returns
-    /// * `bool` - `true` when default processing succeeds.
-    ///
-    /// # Example
-    /// ```ignore
-    /// client.trigger_default(&invoice_id);
-    /// ```
     pub fn trigger_default(env: Env, invoice_id: BytesN<32>) -> bool {
         let inv_key = DataKey::Invoice(invoice_id.clone());
         let mut invoice: Invoice = env
@@ -1008,7 +1428,7 @@ impl InvoiceContract {
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
         env.storage()
             .instance()
@@ -1067,7 +1487,7 @@ impl InvoiceContract {
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
 
         let is_issuer = env
             .try_invoke_contract::<(), soroban_sdk::Error>(
@@ -1283,13 +1703,15 @@ impl InvoiceContract {
                 .storage()
                 .persistent()
                 .get(&DataKey::StatusIndexEntry(status as u32, i))
-                .unwrap();
+                .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
             ids.push_back(id);
         }
         let invoices = hydrate_ids(&env, ids);
         let mut result: Vec<Invoice> = Vec::new(&env);
         for i in 0..invoices.len() {
-            let invoice = invoices.get(i).unwrap();
+            let invoice = invoices
+                .get(i)
+                .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
             if invoice.status == status {
                 result.push_back(invoice);
             }
@@ -1328,7 +1750,7 @@ impl InvoiceContract {
                 .storage()
                 .persistent()
                 .get(&DataKey::IssuerIndexEntry(address.clone(), i))
-                .unwrap();
+                .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
             ids.push_back(id);
         }
         hydrate_ids(&env, ids)
@@ -1365,7 +1787,7 @@ impl InvoiceContract {
                 .storage()
                 .persistent()
                 .get(&DataKey::BuyerIndexEntry(address.clone(), i))
-                .unwrap();
+                .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
             ids.push_back(id);
         }
         hydrate_ids(&env, ids)
@@ -1433,12 +1855,60 @@ impl InvoiceContract {
         Self::get_invoice(&env, invoice_id).issuer
     }
 
+    /// Returns the buyer address for an invoice.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `invoice_id` - The invoice to query.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// * `InvoiceError::NotInitialized` if the contract has not been initialized.
+    /// * `InvoiceError::NotFound` if the invoice cannot be found.
+    ///
+    /// # Returns
+    /// * `Address` - The buyer address.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let buyer = client.get_buyer(&invoice_id);
+    /// ```
+    pub fn get_buyer(env: Env, invoice_id: BytesN<32>) -> Address {
+        Self::get_invoice(&env, invoice_id).buyer
+    }
+
+    /// Returns the due date of an invoice.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment.
+    /// * `invoice_id` - The invoice to query.
+    ///
+    /// # Auth
+    /// No authorization is required.
+    ///
+    /// # Panics
+    /// * `InvoiceError::NotInitialized` if the contract has not been initialized.
+    /// * `InvoiceError::NotFound` if the invoice cannot be found.
+    ///
+    /// # Returns
+    /// * `u64` - The invoice due date as a Unix timestamp.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let due = client.get_due_date(&invoice_id);
+    /// ```
+    pub fn get_due_date(env: Env, invoice_id: BytesN<32>) -> u64 {
+        Self::get_invoice(&env, invoice_id).due_date
+    }
+
     pub fn transfer_ownership(env: Env, new_admin: Address) {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotFound));
+            .unwrap_or_else(|| panic_with_error!(&env, InvoiceError::NotInitialized));
         admin.require_auth();
         new_admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &new_admin);
@@ -1497,7 +1967,11 @@ fn extend_issuer_index(env: &Env, issuer: &Address, invoice_id: &BytesN<32>) {
     // Check if invoice_id already exists in this issuer index
     for i in 0..count {
         let entry_key = DataKey::IssuerIndexEntry(issuer.clone(), i);
-        let existing_id: BytesN<32> = env.storage().persistent().get(&entry_key).unwrap();
+        let existing_id: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&entry_key)
+            .unwrap_or_else(|| panic_with_error!(env, InvoiceError::NotFound));
         if existing_id == *invoice_id {
             return; // Already exists, skip duplicate
         }
@@ -1533,7 +2007,11 @@ fn extend_buyer_index(env: &Env, buyer: &Address, invoice_id: &BytesN<32>) {
     // Check if invoice_id already exists in this buyer index
     for i in 0..count {
         let entry_key = DataKey::BuyerIndexEntry(buyer.clone(), i);
-        let existing_id: BytesN<32> = env.storage().persistent().get(&entry_key).unwrap();
+        let existing_id: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&entry_key)
+            .unwrap_or_else(|| panic_with_error!(env, InvoiceError::NotFound));
         if existing_id == *invoice_id {
             return; // Already exists, skip duplicate
         }
@@ -1570,7 +2048,11 @@ fn extend_status_index(env: &Env, status: InvoiceStatus, invoice_id: &BytesN<32>
     // Check if invoice_id already exists in this status index
     for i in 0..count {
         let entry_key = DataKey::StatusIndexEntry(status_u32, i);
-        let existing_id: BytesN<32> = env.storage().persistent().get(&entry_key).unwrap();
+        let existing_id: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&entry_key)
+            .unwrap_or_else(|| panic_with_error!(env, InvoiceError::NotFound));
         if existing_id == *invoice_id {
             return; // Already exists, skip duplicate
         }
@@ -1611,7 +2093,11 @@ fn move_status_index(env: &Env, invoice_id: &BytesN<32>, from: InvoiceStatus, to
     let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
     for i in 0..count {
         let entry_key = DataKey::StatusIndexEntry(to_u32, i);
-        let existing_id: BytesN<32> = env.storage().persistent().get(&entry_key).unwrap();
+        let existing_id: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&entry_key)
+            .unwrap_or_else(|| panic_with_error!(env, InvoiceError::NotFound));
         if existing_id == *invoice_id {
             return; // Already in target index, skip all operations
         }
@@ -1647,12 +2133,14 @@ fn read_status_count(env: &Env, status: InvoiceStatus) -> u64 {
 fn hydrate_ids(env: &Env, ids: Vec<BytesN<32>>) -> Vec<Invoice> {
     let mut result: Vec<Invoice> = Vec::new(env);
     for i in 0..ids.len() {
-        let id = ids.get(i).unwrap();
+        let id = ids
+            .get(i)
+            .unwrap_or_else(|| panic_with_error!(env, InvoiceError::NotFound));
         let invoice: Invoice = env
             .storage()
             .persistent()
             .get(&DataKey::Invoice(id))
-            .unwrap();
+            .unwrap_or_else(|| panic_with_error!(env, InvoiceError::NotFound));
         result.push_back(invoice);
     }
     result

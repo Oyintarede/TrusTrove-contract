@@ -105,12 +105,64 @@ pub fn pool_contract_updated(env: &Env, old: &Address, new: &Address) {
     );
 }
 
+pub fn attestation_submitted(
+    env: &Env,
+    invoice_id: &BytesN<32>,
+    agent_id: &Symbol,
+    risk_score: u32,
+) {
+    env.events().publish(
+        (
+            Symbol::new(env, "attestation_submitted"),
+            invoice_id.clone(),
+            agent_id.clone(),
+        ),
+        risk_score,
+    );
+}
+
+pub fn agent_registry_contract_updated(env: &Env, old: &Address, new: &Address) {
+    env.events().publish(
+        (
+            Symbol::new(env, "agent_registry_contract_updated"),
+            old.clone(),
+            new.clone(),
+        ),
+        (),
+    );
+}
+
 pub fn contract_initialized(env: &Env, admin: &Address, registry_contract: &Address) {
     env.events().publish(
         (
             Symbol::new(env, "contract_initialized"),
             admin.clone(),
             registry_contract.clone(),
+        ),
+        (),
+    );
+}
+
+pub fn supported_asset_added(env: &Env, asset: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "supported_asset_added"), asset.clone()),
+        (),
+    );
+}
+
+pub fn supported_asset_removed(env: &Env, asset: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "supported_asset_removed"), asset.clone()),
+        (),
+    );
+}
+
+pub fn escrow_contract_updated(env: &Env, old: &Address, new: &Address) {
+    env.events().publish(
+        (
+            Symbol::new(env, "escrow_contract_updated"),
+            old.clone(),
+            new.clone(),
         ),
         (),
     );

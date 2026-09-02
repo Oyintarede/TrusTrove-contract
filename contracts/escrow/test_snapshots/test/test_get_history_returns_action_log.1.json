@@ -47,6 +47,9 @@
                     "hi": 0,
                     "lo": 1000000000
                   }
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 }
               ]
             }
@@ -507,6 +510,12 @@
                         },
                         {
                           "key": {
+                            "symbol": "caller"
+                          },
+                          "val": "void"
+                        },
+                        {
+                          "key": {
                             "symbol": "invoice_id"
                           },
                           "val": {
@@ -547,6 +556,12 @@
                               "lo": 1000000000
                             }
                           }
+                        },
+                        {
+                          "key": {
+                            "symbol": "caller"
+                          },
+                          "val": "void"
                         },
                         {
                           "key": {
@@ -753,6 +768,9 @@
                     "hi": 0,
                     "lo": 1000000000
                   }
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 }
               ]
             }
@@ -834,6 +852,9 @@
               },
               {
                 "bytes": "0000000000000010000000000000000000000000000000000000000000000000"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
               }
             ],
             "data": {
@@ -1085,6 +1106,12 @@
                     },
                     {
                       "key": {
+                        "symbol": "caller"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
                         "symbol": "invoice_id"
                       },
                       "val": {
@@ -1125,6 +1152,12 @@
                           "lo": 1000000000
                         }
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "caller"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {

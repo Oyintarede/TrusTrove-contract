@@ -52,12 +52,14 @@ Join the contributor community: **[t.me/trusttrove](https://t.me/trusttrove)**
 
 ### Maintainer Tooling
 
-Seed-issue generator scripts live in [`scripts/maintainer/`](./scripts/maintainer/):
+Seed-issue generator scripts live in [`scripts/maintainer/`](./scripts/maintainer/), which is the **only supported location** for this tooling:
 
 - `create_issues.py` — generate issues from a template
 - `create-contract-issues.sh` / `create-contract-issues.ps1` — shell/PowerShell helpers
 
 Run any script from the repo root, e.g. `bash scripts/maintainer/create-contract-issues.sh`.
+
+> Any `create_issues.*` files found at the repo root are stale duplicates left over from before this tooling was consolidated under `scripts/maintainer/`. Do not use them — they lack the rate-limit/dedup guards the `scripts/maintainer/` versions have.
 
 ---
 
@@ -65,7 +67,7 @@ Run any script from the repo root, e.g. `bash scripts/maintainer/create-contract
 
 ### registry_contract
 
-Tracks verified SME issuers and buyers. Every other contract calls `is_verified()` before allowing any action.
+Tracks verified SME issuers and buyers.
 
 ```
 initialize(admin)
@@ -75,6 +77,21 @@ is_verified(address) → bool
 get_profile(address) → Profile
 revoke(address) → bool
 ```
+
+**Revocation is prospective, not retroactive.** `is_verified()` is re-checked
+at every point where new business gets committed — `invoice.create()`,
+`invoice.list_for_financing()`, and `pool.fund_invoice()` — so a revoked
+issuer or buyer can't originate, list, or get funded on a new invoice. It is
+**not** re-checked at any later lifecycle step (`mark_shipped`,
+`confirm_delivery`, `repay`, `repay_early`, `trigger_default`): once an
+invoice is `Funded`, pool capital is already committed and the repayment
+terms are already fixed, so a later `revoke()` does not unwind, freeze, or
+force-default an in-flight invoice. This is a deliberate choice — unwinding
+committed capital on revocation would be disruptive to LPs and gameable
+(e.g. an issuer could grief the pool by getting itself revoked mid-term to
+force a default). Admins who need to stop a specific in-flight invoice have
+`invoice.trigger_default()` (past due date) as the existing mechanism; there
+is no separate "freeze this invoice" primitive.
 
 ### invoice_contract
 
@@ -87,6 +104,7 @@ Created → Listed → Funded → Active → Confirmed → Repaid
 
 ```
 create(issuer, buyer, face_value, due_date, funding_asset) → invoice_id
+submit_attestation(invoice_id, payload, signature) → bool
 list_for_financing(invoice_id, discount_bps) → bool
 mark_funded(invoice_id, funded_amount) → bool   ← pool_contract only
 mark_shipped(invoice_id) → bool
@@ -94,8 +112,10 @@ confirm_delivery(invoice_id, confirmer) → bool  ← dual confirmation required
 repay(invoice_id) → bool
 trigger_default(invoice_id) → bool
 get(invoice_id) → Invoice
+get_attestation(invoice_id) → Option<Attestation>
 get_by_status(status) → Vec<Invoice>
 get_by_issuer(address) → Vec<Invoice>
+set_agent_registry_contract(agent_registry_contract) → bool
 ```
 
 ### escrow_contract
@@ -117,7 +137,7 @@ USDC liquidity pool with share-based LP accounting. Share price grows as invoice
 ```
 deposit(lp, usdc_amount) → shares
 withdraw(lp, shares) → usdc_amount
-fund_invoice(invoice_id) → bool
+fund_invoice(invoice_id) → bool         ← re-verifies issuer & buyer against registry_contract
 receive_repayment(invoice_id, amount) → bool  ← invoice_contract only
 handle_default(invoice_id) → bool
 get_stats() → PoolStats
@@ -153,6 +173,11 @@ get_lp_position(address) → LPPosition
           └───────────────────┘
 ```
 
+`pool_contract` also calls `registry_contract.is_verified()` directly
+(not shown above) as part of `fund_invoice`, re-checking the issuer and
+buyer before committing capital. See "Revocation is prospective, not
+retroactive" above.
+
 ### Invoice Lifecycle & Fund Movement
 
 Each step below documents what happens to USDC and which contracts are called.
@@ -167,6 +192,8 @@ Pool ──[shares]──► LP
 
 #### Step 2 — Create & List (no funds move)
 The issuer creates an invoice (recording `face_value`, `due_date`, `buyer`, `funding_asset`), then lists it with a `discount_bps` expressing the yield they will give up in exchange for immediate liquidity.
+
+Before listing, an Underwrite agent must sign an `AttestationPayload` (containing `domain_separator`, `invoice_id`, `risk_score`, `evidence_hash`, `agent_id`, `nonce`) off-chain with a secp256k1 key. Anyone can relay this signature via `submit_attestation`, which recovers the signer and verifies it against the agent-registry contract (deployed separately from the `underwrite-contract` repo). The agent-registry address is configured via `set_agent_registry_contract` (admin-only). `list_for_financing` panics with `VerificationRequired` until a valid attestation exists for the invoice.
 
 ```
 No fund movement. Invoice status: Created → Listed.
@@ -270,6 +297,7 @@ Verify on [Stellar Expert Testnet](https://stellar.expert/explorer/testnet)
 
 - Rust 1.85.0 (required — other versions either have WASM bugs or are blocked by Stellar CLI)
 - [Stellar CLI](https://github.com/stellar/stellar-cli) (latest)
+- [jq](https://jqlang.github.io/jq/download/) (latest) — required by `scripts/maintainer/update-readme-addresses.sh`, which runs automatically at the end of `deploy.sh`
 
 ### 1. Install Rust 1.85.0
 
@@ -436,3 +464,4 @@ MIT — see [CHANGELOG.md](./CHANGELOG.md) for version history.
 ## Contributors
 
 [![Contributors](https://contrib.rocks/image?repo=TrusTrove/TrusTrove-contract)](https://github.com/TrusTrove/TrusTrove-contract/graphs/contributors)
+// fix

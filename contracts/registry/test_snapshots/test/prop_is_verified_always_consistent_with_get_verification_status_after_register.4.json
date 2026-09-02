@@ -36,7 +36,32 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "D"
+                      },
+                      "val": {
+                        "string": "RKFW"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "Yoj_GecMa_"
+                      },
+                      "val": {
+                        "string": "_G_Q"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "_"
+                      },
+                      "val": {
+                        "string": "_3"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -100,7 +125,32 @@
                         "symbol": "metadata"
                       },
                       "val": {
-                        "map": []
+                        "map": [
+                          {
+                            "key": {
+                              "string": "D"
+                            },
+                            "val": {
+                              "string": "RKFW"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "Yoj_GecMa_"
+                            },
+                            "val": {
+                              "string": "_G_Q"
+                            }
+                          },
+                          {
+                            "key": {
+                              "string": "_"
+                            },
+                            "val": {
+                              "string": "_3"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -355,7 +405,32 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "map": []
+                  "map": [
+                    {
+                      "key": {
+                        "string": "D"
+                      },
+                      "val": {
+                        "string": "RKFW"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "Yoj_GecMa_"
+                      },
+                      "val": {
+                        "string": "_G_Q"
+                      }
+                    },
+                    {
+                      "key": {
+                        "string": "_"
+                      },
+                      "val": {
+                        "string": "_3"
+                      }
+                    }
+                  ]
                 }
               ]
             }
